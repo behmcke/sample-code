@@ -113,8 +113,6 @@ for(i in 2:session_count){                            #loop through all quick ta
 
 ```
 
-
-#Combine Attendance Tables
 ```{r Print List of Students who Attended}
 
 #initiate table of all counted attendees
