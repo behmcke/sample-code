@@ -1,0 +1,183 @@
+
+
+```{r Read Me}
+# /////////////////////////////////////////////////////////////////////////////
+# Title           Sample Code - Take Attendance
+# 
+# Authors         Betsy Ehmcke
+#
+# Date            Jan-2020
+# 
+# Packages        readr, readxl, tidyverse
+#
+# Objective       Stat 1430 requires weekly attendance at an A and B recitation 
+#                 and allows students to attend any of nine virtual recitations 
+#                 offered for each.
+#                 
+#                 I wrote this script to populate 5 points of attendance credit
+#                 for each student who stayed in the Zoom session for more than
+#                 10 minutes.
+#
+#                 Additionally, the script prints a list of attendees who cannot
+#                 be matched to an enrolled student as well as a list of 
+#                 students who did not stay for at least 10 minutes, providing
+#                 documentation for grade disputes.
+#
+#                 All members of our TA staff elected to use this script rather 
+#                 than record attendance grades manually.
+# /////////////////////////////////////////////////////////////////////////////
+
+```
+
+
+```{r Prepare Notebook}
+
+pacman::p_load(readr,                               #str_detect()
+               readxl,                              #read_excel()
+               tidyverse)
+
+options(scipen=999)                                 #use standard notation for numbers
+
+session_count <- 9                                  #number of recitation reports
+```
+
+
+```{r Clean Table}
+
+# function to reformat Zoom-generated reports to be uniform
+# (default is dependent on personal settings)
+
+reformatTable <- function(table){
+  
+  #rename columns containing 'Duration' to be named simply 'Duration'
+  colnames(table)[grepl('Duration', colnames(table))] <- 'Duration'
+  
+  cleaned_table <- rename(table, 
+                          Name = colnames(table)[1]) %>% #rename first column to 'Name'
+    separate(Name,
+             c("First_Name", "Last_Name"),          #separate first and last names
+             sep=" ",
+             extra="merge") %>%                     #allow multiple or extra terms to be included in last name
+    unite(Student,
+          Last_Name:First_Name,
+          sep=", ") %>%                             #combine name with format 'Last, First'
+    group_by(Student) %>%
+    filter(str_detect(Duration, "No", negate=TRUE)) %>% #remove if Duration is 'No'
+    summarise(Duration = sum(as.numeric(Duration),
+                             na.rm = TRUE)) %>%     #cumulative duration per student
+    mutate(ThisWeek = 5) %>%                        #add points column - 5 awarded
+    select(Student, Duration, ThisWeek)             #retain columns
+  
+  return(cleaned_table)
+}
+
+```
+
+
+```{r Load Attendance}
+
+for(i in 1:session_count){ #loop through all sessions
+  csv_load <- paste("z", i, ".csv", sep="")           #reports are named z1-z9
+  load_week <- read.csv(csv_load)                     #read csv files
+  
+  # save group who attended more than or equal to 10 minutes
+  this_week <- reformatTable(load_week) %>%
+    filter(Duration >= 10) %>%
+    select(-Duration)
+  
+  # save group who attended fewer than 10 minutes
+  less_than_10 <- reformatTable(load_week) %>%
+    filter(Duration < 10)  %>%
+    select(-Duration)
+  
+  segment_attended <- paste("temp", i, sep="")        #save as temp1-temp9
+  assign(segment_attended, this_week)                 #store attendance table
+  
+  segment_quick <- paste("quick", i, sep="")          #save as quick1-quick9
+  assign(segment_quick, less_than_10)                 #store attendees who left too early
+}
+```
+
+
+```{r Print List of Students Who Attended Fewer than 10 Minutes}
+
+#initiate table of all brief attendees
+quicktrips <- quick1
+
+for(i in 2:session_count){                            #loop through all quick tables
+  quick_table <- paste("quick", i, sep="")            #select quick2-quick9
+  quick_add <- get(quick_table)                       #pull quick2-quick9
+  
+  quicktrips <- rbind(quicktrips, quick_add)          #add quick2-quick9 to full quick table
+}
+
+```
+
+
+#Combine Attendance Tables
+```{r Print List of Students who Attended}
+
+#initiate table of all counted attendees
+attended <- temp1
+
+for(i in 2:session_count) {                           #loop through all temp tables
+  table <- paste("temp", i, sep="")                   #select temp2-temp9
+  add <- get(table)                                   #pull temp2-temp9
+  
+  attended <- rbind(attended, add)                    #add temp2-temp9 to full attendance table
+}
+
+attended <- attended %>% 
+  #replace gradebook names with student preferred names when contacted
+  mutate(Student=replace(Student, Student=="Lastname1, Nickname1", "Lastname1, FirstName1"),
+         Student=replace(Student, Student=="Lastname2, Nickname2", "Lastname2, FirstName2"),
+         Student=replace(Student, Student=="Lastname3, Nickname3", "Lastname3, FirstName3"),
+         Student=replace(Student, Student=="Lastname4, Nickname4", "Lastname4, FirstName4"),
+         Student=replace(Student, Student=="Lastname5, Nickname5", "Lastname5, FirstName5"),
+         Student=replace(Student, Student=="Lastname6, Nickname6", "Lastname6, FirstName6"),
+         Student=replace(Student, Student=="Lastname7, Nickname7", "Lastname7, FirstName7"),
+         Student=replace(Student, Student=="Lastname8, Nickname8", "Lastname8, FirstName8"),
+         Student=replace(Student, Student=="Lastname9, Nickname9", "Lastname9, FirstName9")
+         ) %>%
+  as.data.frame()
+
+#create list of staff names
+staff <- data.frame("Student"= c("Lastname10, FirstName10", 
+                                 "Lastname11, FirstName11", 
+                                 "Lastname12, FirstName12", 
+                                 "Lastname13, FirstName13", 
+                                 "Lastname14, FirstName14", 
+                                 "Lastname15, FirstName15",
+                                 "Lastname16, FirstName16"))
+
+#read gradebook roster from excel file
+roster <- read_excel("/Users/elizabethehmcke/Documents/GTA/GTA SP-21/roster.xlsx")
+
+gradebook <- left_join(roster,                        #join attendance list to roster
+                       attended,
+                       by="Student") %>%
+  unique()                                            #remove students who attended multiple
+
+manual <- anti_join(attended,                         #list of names from attendee list
+                    roster,                           #not found in gradebook roster
+                    by="Student") %>%
+  anti_join(staff,                                    #remove staff names from manual-entry list
+            by="Student")
+
+```
+
+```{r Export Tables}
+
+write.csv(gradebook,                                  #export csv file for import to gradebook
+          "/Users/elizabethehmcke/Documents/GTA/GTA SP-21/Attendance/Recitation 14A/Test-Gradebook.csv", 
+          row.names = FALSE, na="")
+
+write.csv(manual,                                     #export csv file of attendees who were not graded
+          "/Users/elizabethehmcke/Documents/GTA/GTA SP-21/Attendance/Recitation 14A/Test_Manual.csv", 
+          row.names = FALSE, na="")
+
+write.csv(quicktrips,                                 #export csv file of attendees who left too quickly
+          "/Users/elizabethehmcke/Documents/GTA/GTA SP-21/Attendance/Recitation 14A/Test_Quicktrips.csv", 
+          row.names=FALSE, na="")
+
+```
